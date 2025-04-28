@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Binary Grid</title>
+    <style>
+        html, body {
+            background-color: #000000;
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            width: 100%;
+        }
+        body {
+            color: #ffffff;
+            font-family: 'Courier New', monospace;
+            overflow: hidden;
+        }
+        .binary-grid {
+            font-size: 10px;
+            line-height: 1.6;
+            letter-spacing: 6px;
+            white-space: pre;
+            padding: 0;
+            margin: 0;
+            user-select: text;
+        }
+        .digit {
+            display: inline-block;
+            opacity: 0;
+            transform: translateY(5px);
+            animation: waveIn 0.15s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+            will-change: transform, opacity;
+            min-width: 6px;
+            text-align: center;
+        }
+        .digit.selected {
+            color: #F2FF00;
+        }
+        @keyframes waveIn {
+            0% {
+                opacity: 0;
+                transform: translateY(5px) scale(0.95);
+            }
+            100% {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="binary-grid" id="grid"></div>
+    <script>
+        let centerX = 0;
+        let centerY = 0;
+        let resizeTimeout;
+        let gridCache = null;
+        const textSequence = ["A", "LANGUAGE", "IS", "A", "PURELY", "ABSTRACT", "ENTITY"];
+        const fullSentence = textSequence.join("");
+        const wordColors = {
+            "A": "#F2FF00",
+            "LANGUAGE": "#FF3700",
+            "IS": "#532DFF",
+            "PURELY": "#FF00B7",
+            "ABSTRACT": "#00FF90",
+            "ENTITY": "#88FF00"
+        };
+        let currentTextIndex = 0;
+
+        function setRandomCenter() {
+            centerX = Math.random() * 100;
+            centerY = Math.random() * 100;
+        }
+
+        function createDigitSpan(digit, row, col, totalCols, totalRows) {
+            const span = document.createElement('span');
+            span.textContent = digit;
+            span.className = 'digit';
+            span.dataset.original = digit;
+            
+            // Optimized distance calculation
+            const colPercent = (col / totalCols) * 100;
+            const rowPercent = (row / totalRows) * 100;
+            const dx = colPercent - centerX;
+            const dy = rowPercent - centerY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            // Optimized delay calculation
+            const delay = Math.min(distance * 0.0005, 0.5);
+            span.style.animationDelay = `${delay}s`;
+            return span;
+        }
+
+        function generateGridContent(w, h) {
+            const lines = new Array(h);
+            const container = document.createDocumentFragment();
+            
+            // Generate all digits first
+            for (let i = 0; i < h; i++) {
+                let line = '';
+                for (let j = 0; j < w; j++) {
+                    line += Math.random() < 0.5 ? '0' : '1';
+                }
+                lines[i] = line;
+            }
+            
+            // Create DOM elements in a single pass
+            for (let i = 0; i < h; i++) {
+                for (let j = 0; j < w; j++) {
+                    container.appendChild(createDigitSpan(lines[i][j], i, j, w, h));
+                }
+                container.appendChild(document.createTextNode('\n'));
+            }
+            
+            return container;
+        }
+
+        function handleSelection() {
+            const selection = window.getSelection();
+            if (!selection.isCollapsed) {
+                const range = selection.getRangeAt(0);
+                const selectedNodes = getSelectedNodes(range);
+                
+                // Get the number of selected digits
+                const selectedCount = selectedNodes.length;
+                
+                // Apply the text to each selected digit
+                selectedNodes.forEach((node, index) => {
+                    if (node.classList.contains('digit')) {
+                        // Use modulo to cycle through the sentence
+                        const charIndex = index % fullSentence.length;
+                        const char = fullSentence[charIndex];
+                        node.textContent = char;
+                        
+                        // Find which word this character belongs to
+                        let currentWord = "";
+                        let currentPos = 0;
+                        for (const word of textSequence) {
+                            if (index % fullSentence.length >= currentPos && 
+                                index % fullSentence.length < currentPos + word.length) {
+                                currentWord = word;
+                                break;
+                            }
+                            currentPos += word.length; // Removed +1 for space
+                        }
+                        
+                        // Apply the color for the current word
+                        if (currentWord && wordColors[currentWord]) {
+                            node.style.color = wordColors[currentWord];
+                        }
+                    }
+                });
+            }
+        }
+
+        function getSelectedNodes(range) {
+            const nodes = [];
+            const walker = document.createTreeWalker(
+                range.commonAncestorContainer,
+                NodeFilter.SHOW_ELEMENT,
+                {
+                    acceptNode: function(node) {
+                        return node.classList.contains('digit') ? 
+                            NodeFilter.FILTER_ACCEPT : 
+                            NodeFilter.FILTER_SKIP;
+                    }
+                }
+            );
+            
+            let node = walker.currentNode;
+            while (node) {
+                if (range.intersectsNode(node)) {
+                    nodes.push(node);
+                }
+                node = walker.nextNode();
+            }
+            
+            return nodes;
+        }
+
+        function fillGrid() {
+            const grid = document.getElementById('grid');
+            grid.innerHTML = '';
+            
+            // Calculate grid dimensions once
+            const charWidth = 6;
+            const letterSpacing = 6;
+            const totalCharWidth = charWidth + letterSpacing;
+            const w = Math.floor(window.innerWidth / totalCharWidth) + 1;
+            const h = Math.ceil(window.innerHeight / 16);
+            
+            // Use cached content if available and dimensions match
+            if (gridCache && gridCache.w === w && gridCache.h === h) {
+                grid.appendChild(gridCache.content.cloneNode(true));
+            } else {
+                const content = generateGridContent(w, h);
+                gridCache = { w, h, content };
+                grid.appendChild(content);
+            }
+        }
+        
+        // Debounced resize handler
+        function handleResize() {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(fillGrid, 100);
+        }
+        
+        // Initialize immediately
+        setRandomCenter();
+        fillGrid();
+        
+        window.addEventListener('resize', handleResize);
+        window.addEventListener('click', setRandomCenter);
+        document.addEventListener('mouseup', handleSelection);
+    </script>
+</body>
+</html> 
